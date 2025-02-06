@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Hosting Script Generator</title>
+
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+</head>
+
+<body class="p-2 flex flex-col justify-between h-full">
+    <div>
+        <h1 class="text-4xl text-center">Automated Hosting Script Generator</h1>
+        <div id="form"></div>
+        <!-- <div class="flex gap-2 my-2">
+            <p>Do you want to upgrade server?</p>
+
+            <div class="flex space-x-4">
+                <input type="radio" name="upgrade-server" id="upgrade-server-yes" class="hidden peer/upgrade-server-yes"
+                    checked onchange="generateScript()">
+                <label for="upgrade-server-yes"
+                    class="border px-4 rounded cursor-pointer hover:bg-neutral-800 hover:text-neutral-200 peer-checked/upgrade-server-yes:bg-neutral-800 peer-checked/upgrade-server-yes:text-neutral-200">
+                    Yes
+                </label>
+
+                <input type="radio" name="upgrade-server" id="upgrade-server-no" class="hidden peer/upgrade-server-no"
+                    onchange="generateScript()">
+                <label for="upgrade-server-no"
+                    class="border px-4 rounded cursor-pointer hover:bg-neutral-800 hover:text-neutral-200 peer-checked/upgrade-server-no:bg-neutral-800 peer-checked/upgrade-server-no:text-neutral-200">
+                    No
+                </label>
+            </div>
+        </div>
+        -->
+        <div class="flex justify-end">
+            <button class="border px-4 my-4 rounded cursor-pointer hover:bg-neutral-800 hover:text-neutral-200" onclick="navigator.clipboard.writeText(document.getElementById('code').innerText); this.innerText='copied'; setTimeout(() => {
+                    this.innerText='Copy Script';
+                }, 1000);">Copy
+                Script</button>
+        </div>
+    </div>
+
+    <pre class="border"><code lang="console" id="code"></code></pre>
+
+    <script>
+        const askBtn = (question, name, options, defaultValue) => {
+            const html = `<div class="flex gap-2 my-2">
+            <p>${question}</p>
+
+            <div class="flex space-x-4">
+                ${options.map(option => `<input type="radio" name="${name}" id="${name}-${option}" class="hidden peer/${name}-${option}" ${defaultValue == option ? 'checked' : ''}
+                    onchange="generateScript()">
+                <label for="${name}-${option}"
+                    class="border px-4 rounded cursor-pointer hover:bg-neutral-800 hover:text-neutral-200 peer-checked/${name}-${option}:bg-neutral-800 peer-checked/${name}-${option}:text-neutral-200">
+                    ${option.replaceAll('-', ' ').split(' ').map(str => str.charAt(0).toUpperCase() + str.slice(1)).join(' ')}
+                </label>`)}
+            </div>
+        </div>`
+
+            document.getElementById('form').innerHTML += html
+        }
+
+        const askInput = (question, name, defaultValue) => {
+            const html = `<div class="flex gap-2 my-2">
+            <p>${question}</p>
+
+            <input class="border px-2 rounded" name="${name}" value="${defaultValue}" oninput="generateScript()" />
+        </div>`
+
+            document.getElementById('form').innerHTML += html
+        }
+
+        askBtn('Do you want to upgrade server?', 'upgrade-server', ['yes', 'no'], 'yes')
+        askBtn('Do you want to install nginx?', 'install-nginx', ['yes', 'no'], 'yes')
+        askBtn('Do you want to install docker?', 'install-docker', ['yes', 'no'], 'yes')
+        askInput('Name of the project', 'project-name', 'example')
+        askInput('Name of the domain', 'domain-name', 'example.com')
+        askInput('Name of the cwd', 'cwd-name', '/home/ubuntu')
+        askInput('Internal Port', 'container-port', '8081')
+        askInput('Git branch name', 'git-branch', 'master')
+        askInput('Git repo url', 'git-repo', 'git@github.com:Abhay-Vachhani/django-hosting-with-docker.git')
+
+        const generateScript = () => {
+            const upgradeServer = document.querySelector('input[name="upgrade-server"]:checked').id == 'upgrade-server-yes'
+            const installNginx = document.querySelector('input[name="install-nginx"]:checked').id == 'install-nginx-yes'
+            const installDocker = document.querySelector('input[name="install-docker"]:checked').id == 'install-docker-yes'
+            const projectName = document.querySelector('input[name="project-name"]').value
+            const domainName = document.querySelector('input[name="domain-name"]').value
+            const cwd = document.querySelector('input[name="cwd-name"]').value
+            const containerPort = document.querySelector('input[name="container-port"]').value
+            const gitBranch = document.querySelector('input[name="git-branch"]').value
+            const gitRepo = document.querySelector('input[name="git-repo"]').value
+
+
+            let script = ''
+
+            const addLineToScript = (line, pre) => script += (pre ? '\n' : '') + line + '\n'
+
+            addLineToScript('sudo apt update')
+
+            if (upgradeServer) {
+                addLineToScript('sudo apt upgrade')
+            }
+
+            if (installNginx) {
+                addLineToScript('sudo apt install nginx -y', true)
+                addLineToScript('sudo rm -rf /etc/nginx/sites-enabled/default')
+                addLineToScript('sudo usermod -aG $USER www-data')
+            }
+
+            if (installDocker) {
+                addLineToScript('curl -fsSL https://get.docker.com -o get-docker.sh', true)
+                addLineToScript('sudo sh get-docker.sh')
+                addLineToScript('sudo usermod -aG docker $USER')
+                addLineToScript('newgrp docker')
+            }
+
+            addLineToScript(`cd ${cwd}`, true)
+
+            addLineToScript(`mkdir ${projectName}`, true)
+            addLineToScript(`cd ${projectName}`)
+            addLineToScript(`touch build.sh`, true)
+
+            addLineToScript(`cat <<EOF > build.sh
+rm -rf code
+
+GIT_SSH_COMMAND="ssh -i id_ed25519" git clone -b ${gitBranch} ${gitRepo} code
+
+docker compose down
+docker compose up --build -d
+EOF`, true)
+
+            addLineToScript(`chmod +x build.sh`, true)
+            addLineToScript(`touch Dockerfile`, true)
+
+            addLineToScript(`cat <<EOF > Dockerfile
+FROM python
+
+ENV PYTHONUNBUFFERED 1
+
+WORKDIR /app
+
+COPY code/requirements.txt /app/
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY code/ /app/
+
+RUN python manage.py collectstatic --noinput
+
+EXPOSE ${containerPort}
+
+CMD ["gunicorn", "${projectName}.wsgi:application", "--bind", "0.0.0.0:${containerPort}"]
+EOF`, true)
+
+            addLineToScript(`touch docker-compose.yml`, true)
+
+            addLineToScript(`cat <<EOF > docker-compose.yml
+services:
+  database:
+    image: postgres
+    environment:
+      - POSTGRES_DB=${projectName}
+      - POSTGRES_USER=${projectName}_username
+      - POSTGRES_PASSWORD=${projectName}_password
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    container_name: ${projectName}-database
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${containerPort}:${containerPort}"
+    container_name: ${projectName}-backend
+    volumes:
+      - "./static:/app/static"
+      - "./media:/app/media"
+    depends_on:
+      - database
+    environment:
+      - DATABASE_URL=postgres://${projectName}_username:${projectName}_password@database:5432/${projectName}
+
+EOF`, true)
+
+            addLineToScript(`ssh-keygen -t rsa -b 4096 -C "${projectName}-deploy-key" -f ./id_ed25519 -N ""`, true)
+
+            addLineToScript(`sudo touch /etc/nginx/sites-available/${projectName}.conf`, true)
+            addLineToScript(`sudo tee /etc/nginx/sites-available/${projectName}.conf > /dev/null <<EOF
+server {
+    server_name ${domainName};
+
+    location /static/ {
+        alias ${cwd}/${projectName}/static/;
+    }
+
+    location /media/ {
+        alias ${cwd}/${projectName}/media/;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${containerPort};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+EOF
+`, true)
+            addLineToScript(`sudo ln -s /etc/nginx/sites-available/${projectName}.conf /etc/nginx/sites-enabled`)
+
+            addLineToScript(`sudo nginx -t`, true)
+            addLineToScript(`sudo service nginx reload`)
+
+            addLineToScript(`echo "All files have been created. Now, add ./id_ed25519.pub as a deploy key to your GitHub repository, and then execute ./build.sh"`)
+
+            document.getElementById('code').innerText = script
+        }
+
+        generateScript()
+    </script>
+</body>
+
+</html>
